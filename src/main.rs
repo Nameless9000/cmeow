@@ -2,6 +2,7 @@ use std::fs;
 use std::env;
 use std::io;
 use std::io::Read;
+use std::io::Write;
 
 enum Token {
     Meow,
@@ -9,7 +10,7 @@ enum Token {
     Mrowp
 }
 
-#[derive(Debug)]
+#[derive(PartialEq)]#[derive(Debug)]
 enum TranspileToken {
     Next,
     Previous,
@@ -111,7 +112,7 @@ fn transpiletoken_to_char(token: TranspileToken) -> char {
 }
 
 fn interpret_transpiletokens(tokens: Vec<TranspileToken>) {
-    let mut data_pointer: usize = 0;
+    let mut data_pointer: u16 = 0;
     let mut data: [u8; 65536] = [0; 65536];
 
     let mut token_counter = 0;
@@ -125,21 +126,40 @@ fn interpret_transpiletokens(tokens: Vec<TranspileToken>) {
         }
 
         match token.unwrap() {
-            TranspileToken::Next => data_pointer += 1,
-            TranspileToken::Previous => data_pointer -= 1,
-            TranspileToken::Increment => data[data_pointer] += 1,
-            TranspileToken::Decrement => data[data_pointer] -= 1,
-            TranspileToken::Output => print!("{}", data[data_pointer] as char),
+            TranspileToken::Next => data_pointer = data_pointer.wrapping_add(1),
+            TranspileToken::Previous => data_pointer = data_pointer.wrapping_sub(1),
+            TranspileToken::Increment => data[data_pointer as usize] = data[data_pointer as usize].wrapping_add(1),
+            TranspileToken::Decrement => data[data_pointer as usize] = data[data_pointer as usize].wrapping_sub(1),
+            TranspileToken::Output => {
+                print!("{}", data[data_pointer as usize] as char);
+                io::stdout().flush().ok();
+            },
             TranspileToken::Input => {
                 let mut buf = [0; 1];
                 io::stdin().read_exact(&mut buf)
                     .expect("Invalid input");
 
-                data[data_pointer] = buf[0];
+                data[data_pointer as usize] = buf[0];
             },
-            TranspileToken::LoopStart => loops.push(token_counter),
+            TranspileToken::LoopStart => {
+                if data[data_pointer as usize] == 0 {
+                    let mut count = 1;
+
+                    while count != 0 && token_counter < tokens.len() {
+                        token_counter += 1;
+
+                        if tokens[token_counter as usize] == TranspileToken::LoopStart {
+                            count += 1;
+                        } else if tokens[token_counter as usize] == TranspileToken::LoopEnd {
+                            count -= 1;
+                        }
+                    }
+                } else {
+                    loops.push(token_counter)
+                }
+            },
             TranspileToken::LoopEnd => {
-                if data[data_pointer] == 0 {
+                if data[data_pointer as usize] == 0 {
                     loops.pop();
                 } else {
                     token_counter = *loops.last()
