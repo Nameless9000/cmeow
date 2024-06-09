@@ -1,5 +1,7 @@
 use std::fs;
 use std::env;
+use std::io;
+use std::io::Read;
 
 enum Token {
     Meow,
@@ -7,6 +9,7 @@ enum Token {
     Mrowp
 }
 
+#[derive(Debug)]
 enum TranspileToken {
     Next,
     Previous,
@@ -107,17 +110,60 @@ fn transpiletoken_to_char(token: TranspileToken) -> char {
     }
 }
 
+fn interpret_transpiletokens(tokens: Vec<TranspileToken>) {
+    let mut data_pointer: usize = 0;
+    let mut data: [u8; 65536] = [0; 65536];
+
+    let mut token_counter = 0;
+
+    let mut loops: Vec<usize> = vec![];
+
+    loop {
+        let token = tokens.get(token_counter);
+        if token.is_none() {
+            break;
+        }
+
+        match token.unwrap() {
+            TranspileToken::Next => data_pointer += 1,
+            TranspileToken::Previous => data_pointer -= 1,
+            TranspileToken::Increment => data[data_pointer] += 1,
+            TranspileToken::Decrement => data[data_pointer] -= 1,
+            TranspileToken::Output => print!("{}", data[data_pointer] as char),
+            TranspileToken::Input => {
+                let mut buf = [0; 1];
+                io::stdin().read_exact(&mut buf)
+                    .expect("Invalid input");
+
+                data[data_pointer] = buf[0];
+            },
+            TranspileToken::LoopStart => loops.push(token_counter),
+            TranspileToken::LoopEnd => {
+                if data[data_pointer] == 0 {
+                    loops.pop();
+                } else {
+                    token_counter = *loops.last()
+                        .expect("Unexpected exit of loop")
+                }
+            },
+            TranspileToken::Other => (),
+        }
+
+        token_counter += 1
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    assert_eq!(args.len(), 3, "Usage: program <mode: compile | transpile> <file>");
+    assert_eq!(args.len(), 3, "Usage: cmeow <mode: compile | transpile | run> <file>");
 
     let mode = &args[1].to_ascii_lowercase();
     let filename = &args[2];
 
-    if mode == "compile" {
-        let contents = fs::read_to_string(filename)
+    let contents = fs::read_to_string(filename)
             .expect("Should have been able to read the file");
 
+    if mode == "compile" {
         let tokens: Vec<&str> = contents
             .split_ascii_whitespace()
             .collect();
@@ -133,10 +179,18 @@ fn main() {
             .collect();
 
         println!("{}", compiled_string)
-    } else if mode == "transpile" {
-        let contents = fs::read_to_string(filename)
-            .expect("Should have been able to read the file");
+    } else if mode == "run" {
+        let tokens: Vec<&str> = contents
+            .split_ascii_whitespace()
+            .collect();
 
+        let tokens: Vec<TranspileToken> = tokens
+            .chunks_exact(2)
+            .map(|x| compile_token(&(string_to_token(*x.first().unwrap()), string_to_token(*x.last().unwrap()))))
+            .collect();
+
+        interpret_transpiletokens(tokens)
+    } else if mode == "transpile" {
         let tokens = string_to_transpiletokens(contents);
 
         println!("{}", transpiletokens_to_string(tokens));
